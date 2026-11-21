@@ -130,6 +130,15 @@ export function ContactClient() {
   });
 
   const onSubmit = async (data: ContactFormData) => {
+    // Hand the request to the server so the team receives it and the visitor
+    // gets a confirmation email. Fire and forget: what the visitor sees below
+    // never depends on this call.
+    void fetch("/api/contact", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+      keepalive: true,
+    }).catch(() => {});
     setRequestText(buildRequestText(data));
     setIsSubmitted(true);
   };

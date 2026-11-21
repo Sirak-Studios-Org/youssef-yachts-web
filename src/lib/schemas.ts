@@ -144,3 +144,20 @@ export const adminLoginSchema = z.object({
   email: z.email(),
   password: z.string().min(1),
 });
+
+// Contact form submission (src/app/contact/contact-client.tsx). Mirrors the
+// client-side form schema.
+export const contactInquirySchema = z.object({
+  firstName: z.string().min(1).max(50),
+  lastName: z.string().min(1).max(50),
+  email: z.email("Please enter a valid email address"),
+  phone,
+  preferredDate: z.string().min(1).max(40),
+  partySize: z.string().min(1).max(10),
+  charterType: z.string().min(1).max(40),
+  occasion: z.string().max(100).optional(),
+  addOns: z.array(z.string().max(60)).max(30).optional(),
+  message: z.string().max(2000).optional(),
+});
+
+export type ContactInquiryInput = z.infer<typeof contactInquirySchema>;

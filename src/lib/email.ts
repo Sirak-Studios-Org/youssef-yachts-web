@@ -86,3 +86,41 @@ export async function sendBookingConfirmation(booking: DbBooking): Promise<void>
     await send(admin, `New booking ${booking.id} — ${yachtName} ${booking.scheduleDate}`, adminHtml);
   }
 }
+
+/**
+ * Plain-text send used by the contact form. Same gate and same sender as the
+ * rest of this file (RESEND_API_KEY and EMAIL_FROM from the environment, no
+ * default address). Resolves true only when Resend accepted the message.
+ */
+export async function sendPlainEmail(
+  to: string,
+  subject: string,
+  text: string,
+  replyTo?: string
+): Promise<boolean> {
+  if (!configured()) return false;
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: process.env.EMAIL_FROM,
+        to: [to],
+        subject,
+        text,
+        ...(replyTo ? { reply_to: replyTo } : {}),
+      }),
+    });
+    if (!res.ok) {
+      console.error("Resend send failed:", res.status, await res.text().catch(() => ""));
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error("Resend send error:", e);
+    return false;
+  }
+}
