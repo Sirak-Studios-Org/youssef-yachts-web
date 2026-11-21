@@ -172,3 +172,19 @@ model AdminUser {
   passwordHash String
   createdAt    DateTime  @default(now())
 }
+
+// One row per address that has been sent a contact-form confirmation (the
+// address itself is never stored, only its SHA-256 digest). Created by
+// prisma/sql/003_contact_confirmation.sql; used for the 24-hour rate limit.
+model ContactConfirmation {
+  emailKey String   @id
+  sentAt   DateTime @default(now())
+}
+
+// Forward limit for the contact form: at most 3 inquiries forwarded to the
+// team per address per 24 hours. Same digest key, same SQL file.
+model ContactForwardLimit {
+  emailKey     String   @id
+  windowStart  DateTime @default(now())
+  forwardCount Int      @default(1)
+}
