@@ -158,6 +158,8 @@ export const contactInquirySchema = z.object({
   occasion: z.string().max(100).optional(),
   addOns: z.array(z.string().max(60)).max(30).optional(),
   message: z.string().max(2000).optional(),
+  // Honeypot: real visitors never see this field.
+  fax: z.string().max(200).optional(),
 });
 
 export type ContactInquiryInput = z.infer<typeof contactInquirySchema>;

@@ -2,6 +2,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  bodyHasFilledHoneypot,
+  MAX_FORWARDS_PER_DAY,
   buildConfirmationText,
   buildInquiryText,
   CONFIRMATION_SUBJECT,
@@ -111,6 +113,13 @@ function makeDeps(over: Partial<ContactDeps> & { sendOk?: boolean[] } = {}) {
       events.push(`send:${to}`);
       return results[i++] ?? true;
     },
+    claimForward: async () => {
+      events.push("claimForward");
+      return true;
+    },
+    releaseForward: async () => {
+      events.push("releaseForward");
+    },
     claim: async (key) => {
       events.push(`claim:${key.slice(0, 6)}`);
       return true;
@@ -136,7 +145,7 @@ test("success: forwards to the team, claims the slot, then confirms once", async
   assert.equal(calls[1].replyTo, undefined);
   assert.deepEqual(
     events.map((e) => e.split(":")[0]),
-    ["send", "claim", "send"]
+    ["claimForward", "send", "claim", "send"]
   );
 });
 
@@ -148,7 +157,8 @@ test("no team address or a failed forward: no confirmation is sent", async () =>
   const failed = makeDeps({ sendOk: [false] });
   assert.equal(await handleContactSubmission(inquiry, failed.deps), "not-forwarded");
   assert.equal(failed.calls.length, 1);
-  assert.ok(!failed.events.some((e) => e.startsWith("claim")));
+  assert.ok(!failed.events.includes("claim:" + emailKey(inquiry.email).slice(0, 6)));
+  assert.ok(failed.events.includes("releaseForward"), "forward slot given back");
 });
 
 test("a second submission inside 24 hours sends no second confirmation", async () => {
@@ -168,6 +178,94 @@ test("a failed confirmation send releases the slot and never throws", async () =
   const { deps, events } = makeDeps({ sendOk: [true, false] });
   assert.equal(await handleContactSubmission(inquiry, deps), "send-failed");
   assert.ok(events.includes("release"));
+});
+
+test("a filled honeypot forwards nothing, sends nothing and touches no limiter", async () => {
+  for (const fax of ["x", " https://spam.example ", "0"]) {
+    const { deps, calls, events } = makeDeps();
+    assert.equal(await handleContactSubmission({ ...inquiry, fax }, deps), "honeypot");
+    assert.equal(calls.length, 0);
+    assert.deepEqual(events, []);
+  }
+  // A blank honeypot is an ordinary submission.
+  for (const fax of [undefined, "", "   "]) {
+    const { deps } = makeDeps();
+    assert.equal(await handleContactSubmission({ ...inquiry, fax }, deps), "confirmed");
+  }
+});
+
+test("honeypot is read from the raw body, before validation", () => {
+  assert.equal(bodyHasFilledHoneypot({ fax: "x" }), true);
+  assert.equal(bodyHasFilledHoneypot({ fax: "  " }), false);
+  assert.equal(bodyHasFilledHoneypot({ fax: 5 }), false);
+  assert.equal(bodyHasFilledHoneypot({}), false);
+  assert.equal(bodyHasFilledHoneypot(null), false);
+  assert.equal(bodyHasFilledHoneypot("fax"), false);
+  assert.ok(contactInquirySchema.safeParse({ ...inquiry, fax: "" }).success);
+});
+
+// In-memory stand-in with the same rule as claimForward: 3 per address.
+function forwardLimiter(max = MAX_FORWARDS_PER_DAY) {
+  const counts = new Map<string, number>();
+  return {
+    counts,
+    claimForward: async (key: string) => {
+      const n = counts.get(key) ?? 0;
+      if (n >= max) return false;
+      counts.set(key, n + 1);
+      return true;
+    },
+    releaseForward: async (key: string) => {
+      counts.set(key, Math.max((counts.get(key) ?? 0) - 1, 0));
+    },
+  };
+}
+
+test("the fourth inquiry from one address in 24 hours is not forwarded or confirmed", async () => {
+  assert.equal(MAX_FORWARDS_PER_DAY, 3);
+  const limiter = forwardLimiter();
+  const outcomes: string[] = [];
+  let sent = 0;
+  for (let i = 0; i < 5; i++) {
+    const { deps, calls } = makeDeps({ ...limiter });
+    // Same address in different case and spacing counts as one address.
+    const email = i % 2 ? " MARIA.LOPEZ@example.com" : "maria.lopez@example.com";
+    outcomes.push(await handleContactSubmission({ ...inquiry, email }, deps));
+    sent += calls.length;
+  }
+  assert.deepEqual(outcomes.slice(3), ["forward-limited", "forward-limited"]);
+  assert.equal(limiter.counts.get(emailKey(inquiry.email)), 3);
+  // Inquiries 1-3 forward. The confirmation claim is always granted in this
+  // test, so that is 3 forwards plus 3 confirmations; 4 and 5 send nothing.
+  assert.equal(sent, 6);
+});
+
+test("the limit is per address, not global", async () => {
+  const limiter = forwardLimiter(1);
+  const a = makeDeps({ ...limiter });
+  const b = makeDeps({ ...limiter });
+  assert.equal(await handleContactSubmission(inquiry, a.deps), "confirmed");
+  assert.equal(
+    await handleContactSubmission({ ...inquiry, email: "other@example.com" }, b.deps),
+    "confirmed"
+  );
+});
+
+test("a failed forward gives the forward slot back", async () => {
+  const limiter = forwardLimiter();
+  const failed = makeDeps({ ...limiter, sendOk: [false] });
+  assert.equal(await handleContactSubmission(inquiry, failed.deps), "not-forwarded");
+  assert.equal(limiter.counts.get(emailKey(inquiry.email)), 0);
+});
+
+test("a limiter failure does not lose the inquiry: it is still forwarded", async () => {
+  const { deps, calls } = makeDeps({
+    claimForward: async () => {
+      throw new Error('relation "ContactForwardLimit" does not exist');
+    },
+  });
+  assert.equal(await handleContactSubmission(inquiry, deps), "confirmed");
+  assert.equal(calls[0].to, "team@example.com");
 });
 
 test("any thrown error is swallowed", async () => {

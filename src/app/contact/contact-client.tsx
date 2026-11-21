@@ -40,6 +40,8 @@ const contactSchema = z.object({
   occasion: z.string().max(100),
   addOns: z.array(z.string()),
   message: z.string().max(2000),
+  // Honeypot: hidden from people, filled in by bots.
+  fax: z.string().max(200),
 });
 
 type ContactFormData = z.infer<typeof contactSchema>;
@@ -126,6 +128,7 @@ export function ContactClient() {
       occasion: "",
       addOns: [],
       message: "",
+      fax: "",
     },
   });
 
@@ -224,6 +227,21 @@ export function ContactClient() {
                 </p>
 
                 <div className="mt-8 space-y-6">
+                  {/* Honeypot: off screen, skipped by keyboard and screen readers. */}
+                  <div
+                    aria-hidden="true"
+                    className="absolute -left-[9999px] top-auto h-px w-px overflow-hidden"
+                  >
+                    <label htmlFor="fax">Leave this field empty</label>
+                    <input
+                      id="fax"
+                      type="text"
+                      tabIndex={-1}
+                      autoComplete="off"
+                      {...register("fax")}
+                    />
+                  </div>
+
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div>
                       <label htmlFor="firstName" className={labelClasses}>

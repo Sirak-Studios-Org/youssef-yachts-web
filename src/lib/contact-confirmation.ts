@@ -15,6 +15,24 @@ export interface ContactInquiry {
   occasion?: string;
   addOns?: string[];
   message?: string;
+  /** Honeypot. Hidden from people; any non-blank value marks the post as a bot. */
+  fax?: string;
+}
+
+/** Maximum inquiries forwarded to the team per address in one 24-hour window. */
+export const MAX_FORWARDS_PER_DAY = 3;
+
+export function isHoneypotFilled(value: unknown): boolean {
+  return typeof value === "string" && value.trim() !== "";
+}
+
+/** Reads the honeypot from a raw request body before any validation runs. */
+export function bodyHasFilledHoneypot(body: unknown): boolean {
+  return (
+    typeof body === "object" &&
+    body !== null &&
+    isHoneypotFilled((body as { fax?: unknown }).fax)
+  );
 }
 
 // A first name is used in the greeting only when the whole value is letters,
